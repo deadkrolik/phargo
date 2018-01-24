@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -28,7 +29,7 @@ type Reader struct {
 func NewReader() *Reader {
 	return &Reader{
 		options: Options{
-			MaxMetaLength:     10000,
+			MaxMetaDataLength: 10000,
 			MaxManifestLength: 1048576 * 100,
 			MaxFileNameLength: 1000,
 		},
@@ -91,6 +92,7 @@ func (r *Reader) Parse(filename string) (File, error) {
 		result.Files = append(result.Files, PHARFile{
 			Name:      entry.Name,
 			Timestamp: entry.Timestamp,
+			Metadata:  entry.MetaSerialized,
 			Data:      data,
 		})
 	}
@@ -120,8 +122,9 @@ func (r *Reader) parseSignature(filename string, m manifest, rest []byte) error 
 	}
 
 	const (
-		sigMD5  = 0x0001 //PHAR_SIG_MD5
-		sigSHA1 = 0x0002 //PHAR_SIG_SHA1
+		sigMD5    = 0x0001 //PHAR_SIG_MD5
+		sigSHA1   = 0x0002 //PHAR_SIG_SHA1
+		sigSHA256 = 0x0003 //PHAR_SIG_SHA256
 	)
 
 	f, _ := os.Open(filename)
@@ -151,6 +154,11 @@ func (r *Reader) parseSignature(filename string, m manifest, rest []byte) error 
 		signatureLength = 20
 		hasher = sha1.New()
 		algorithm = "SHA1"
+
+	case sigSHA256:
+		signatureLength = 32
+		hasher = sha256.New()
+		algorithm = "SHA256"
 
 	default:
 		return nil
@@ -199,6 +207,7 @@ type entry struct {
 	SizeUncompressed uint32
 	SizeCompressed   uint32
 	CRC              uint32
+	MetaSerialized   []byte
 }
 
 type entryBinary struct {
@@ -242,10 +251,15 @@ func (r *Reader) parseEntryHeader(f io.Reader) (entry, error) {
 	e.SizeUncompressed = eb.SizeUncompressed
 	e.CRC = eb.CRC
 
-	//metadata of entry
-	_, err = io.CopyN(ioutil.Discard, f, int64(eb.MetaLength))
-	if err != nil {
-		return entry{}, errors.New("can't skip metadata of entry: " + err.Error())
+	//read metadata
+	if eb.MetaLength > r.options.MaxMetaDataLength {
+		return entry{}, errors.New("entry metadata is too long: " + e.Name)
+	}
+	e.MetaSerialized = make([]byte, eb.MetaLength)
+
+	n, err = f.Read(e.MetaSerialized)
+	if err != nil || uint32(n) != eb.MetaLength {
+		return entry{}, errors.New("can't read entry metadata: " + e.Name)
 	}
 
 	return e, nil
@@ -299,8 +313,8 @@ func (r *Reader) parseManifest(f io.Reader) (manifest, error) {
 		return manifest{}, errors.New("can't read manifest metadata length: " + err.Error())
 	}
 
-	if m.MetaLength > r.options.MaxMetaLength {
-		return manifest{}, errors.New("metadata length of manifest more than MaxMetaLength")
+	if m.MetaLength > r.options.MaxMetaDataLength {
+		return manifest{}, errors.New("metadata length of manifest more than MaxMetaDataLength")
 	}
 	m.MetaSerialized = make([]byte, m.MetaLength)
 

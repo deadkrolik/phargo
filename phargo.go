@@ -2,7 +2,7 @@ package phargo
 
 //Options - parser options
 type Options struct {
-	MaxMetaLength     uint32
+	MaxMetaDataLength uint32
 	MaxManifestLength int64
 	MaxFileNameLength uint32
 }
@@ -19,5 +19,6 @@ type File struct {
 type PHARFile struct {
 	Name      string
 	Timestamp int64
+	Metadata  []byte
 	Data      []byte
 }

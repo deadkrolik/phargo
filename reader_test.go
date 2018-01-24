@@ -58,3 +58,53 @@ func TestAliasMD5(t *testing.T) {
 		return
 	}
 }
+
+func TestMetadataDirSHA256(t *testing.T) {
+	r := NewReader()
+
+	file, err := r.Parse("./testdata/metadata_dir_sha256.phar")
+	if err != nil {
+		t.Error("Got error", err)
+		return
+	}
+
+	if len(file.Files) != 4 {
+		t.Error("Not 4 files")
+		return
+	}
+
+	if file.Files[0].Name != "FILE" || string(file.Files[0].Data) != "FDATA" {
+		t.Error("Wrong 1 file content or name")
+		return
+	}
+
+	if file.Files[1].Name != "DIR1/FILE1" || string(file.Files[1].Data) != "D1_DATA11" {
+		t.Error("Wrong 2 file content or name")
+		return
+	}
+
+	if file.Files[2].Name != "DIR1/FILE2" || string(file.Files[2].Data) != "D1_DATA12" {
+		t.Error("Wrong 3 file content or name")
+		return
+	}
+
+	if file.Files[3].Name != "DIR2/FILE1" || string(file.Files[3].Data) != "D1_DATA21" {
+		t.Error("Wrong 3 file content or name")
+		return
+	}
+
+	if string(file.Files[0].Metadata) != "a:1:{s:1:\"v\";s:1:\"x\";}" {
+		t.Error("Wrong metadata for file 1")
+		return
+	}
+
+	if string(file.Files[1].Metadata) != "" {
+		t.Error("Wrong metadata for file 2")
+		return
+	}
+
+	if string(file.Files[3].Metadata) != "a:1:{s:1:\"z\";s:2:\"cc\";}" {
+		t.Error("Wrong metadata for file 3")
+		return
+	}
+}
