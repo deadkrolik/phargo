@@ -2,10 +2,12 @@ package phargo
 
 import (
 	"bytes"
+	"crypto/md5"
 	"crypto/sha1"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash"
 	"hash/crc32"
 	"io"
 	"io/ioutil"
@@ -14,7 +16,7 @@ import (
 )
 
 const (
-	haltCompiler = "__HALT_COMPILER(); ?>\r\n"
+	haltCompiler = "__HALT_COMPILER(); ?>"
 )
 
 //Reader - PHAR file parser
@@ -24,14 +26,18 @@ type Reader struct {
 
 //NewReader - creates parser with default options
 func NewReader() *Reader {
-	r := Reader{}
-	r.SetOptions(Options{
-		MaxMetaLength:      10000,
-		MaxManifestLength:  20000,
-		MaxEntryNameLength: 1000,
-	})
+	return &Reader{
+		options: Options{
+			MaxMetaLength:     10000,
+			MaxManifestLength: 1048576 * 100,
+			MaxFileNameLength: 1000,
+		},
+	}
+}
 
-	return &r
+//SetOptions - applies options to parser
+func (r *Reader) SetOptions(o Options) {
+	r.options = o
 }
 
 //Parse - start parsing PHAR file
@@ -60,7 +66,9 @@ func (r *Reader) Parse(filename string) (File, error) {
 	if err != nil {
 		return File{}, err
 	}
+	result.Alias = string(manifest.Alias)
 	result.Metadata = manifest.MetaSerialized
+	result.Version = manifest.Version
 
 	//files descriptions
 	var i uint32
@@ -90,12 +98,12 @@ func (r *Reader) Parse(filename string) (File, error) {
 	//check signature
 	rest, err := ioutil.ReadAll(f)
 	if err != nil {
-		return File{}, errors.New("can't read rest of the file")
+		return File{}, errors.New("can't read rest of the file: " + err.Error())
 	}
 
 	err = r.parseSignature(filename, manifest, rest)
 	if err != nil {
-		return File{}, errors.New("can't parse signature")
+		return File{}, err
 	}
 
 	return result, nil
@@ -103,19 +111,16 @@ func (r *Reader) Parse(filename string) (File, error) {
 
 func (r *Reader) parseSignature(filename string, m manifest, rest []byte) error {
 	rLen := len(rest)
-	if rLen < 4 {
-		return errors.New("unexpected end of file, can't check last 4 bytes")
+	if rLen < 8 {
+		return errors.New("unexpected end of file, can't check last bytes")
 	}
 
 	if "GBMB" != string(rest[rLen-4:rLen]) {
 		return errors.New("can't find GBMB constant at the end")
 	}
 
-	return r.checkFileSignature(filename, rest)
-}
-
-func (r *Reader) checkFileSignature(filename string, restBytes []byte) error {
 	const (
+		sigMD5  = 0x0001 //PHAR_SIG_MD5
 		sigSHA1 = 0x0002 //PHAR_SIG_SHA1
 	)
 
@@ -129,27 +134,34 @@ func (r *Reader) checkFileSignature(filename string, restBytes []byte) error {
 		return err
 	}
 
-	var signatureLength int64
-	if len(restBytes) < 8 {
-		return errors.New("unexpected end of file, can't check signature")
-	}
-
 	//FILE_CONTENT + SIGNATURE + SIG_LENGTH + GBMB
 	//              |<--      restBytes      --->|
-	sigFlag := binary.LittleEndian.Uint32(restBytes[len(restBytes)-8 : len(restBytes)-4])
+	sigFlag := binary.LittleEndian.Uint32(rest[rLen-8 : rLen-4])
+	var hasher hash.Hash
+	var signatureLength int64
+	algorithm := "UNKNOWN"
+
 	switch sigFlag {
+	case sigMD5:
+		signatureLength = 16
+		hasher = md5.New()
+		algorithm = "MD5"
+
 	case sigSHA1:
 		signatureLength = 20
-		h := sha1.New()
-		if _, err := io.CopyN(h, f, stat.Size()-signatureLength-8); err != nil {
-			return err
-		}
+		hasher = sha1.New()
+		algorithm = "SHA1"
 
-		hash := h.Sum(nil)
+	default:
+		return nil
+	}
 
-		if !bytes.Equal(hash, restBytes[:signatureLength]) {
-			return errors.New("SHA1 hash of file is incorrect")
-		}
+	if _, err := io.CopyN(hasher, f, stat.Size()-signatureLength-8); err != nil {
+		return err
+	}
+
+	if !bytes.Equal(hasher.Sum(nil), rest[:signatureLength]) {
+		return errors.New(algorithm + " hash of file is incorrect")
 	}
 
 	return nil
@@ -204,7 +216,7 @@ func (r *Reader) parseEntryHeader(f io.Reader) (entry, error) {
 	//length of entry name
 	var nameLength uint32
 	err := binary.Read(f, binary.LittleEndian, &nameLength)
-	if err != nil || nameLength > r.options.MaxEntryNameLength || nameLength == 0 {
+	if err != nil || nameLength > r.options.MaxFileNameLength || nameLength == 0 {
 		return entry{}, errors.New("can't read entry name length or it's too big")
 	}
 
@@ -233,7 +245,7 @@ func (r *Reader) parseEntryHeader(f io.Reader) (entry, error) {
 	//metadata of entry
 	_, err = io.CopyN(ioutil.Discard, f, int64(eb.MetaLength))
 	if err != nil {
-		return entry{}, errors.New("can't skip metadata of entry")
+		return entry{}, errors.New("can't skip metadata of entry: " + err.Error())
 	}
 
 	return e, nil
@@ -244,6 +256,7 @@ type manifest struct {
 	EntitiesCount  uint32
 	Version        string
 	Flags          uint32
+	Alias          []byte
 	AliasLength    uint32
 	MetaLength     uint32
 	MetaSerialized []byte
@@ -275,14 +288,15 @@ func (r *Reader) parseManifest(f io.Reader) (manifest, error) {
 	m.Flags = mb.Flags
 	m.AliasLength = mb.AliasLength
 
-	_, err = io.CopyN(ioutil.Discard, f, int64(m.AliasLength))
-	if err != nil {
-		return manifest{}, errors.New("can't skip alias while reading manifest")
+	m.Alias = make([]byte, m.AliasLength)
+	n, err := f.Read(m.Alias)
+	if err != nil || uint32(n) != m.AliasLength {
+		return manifest{}, errors.New("can't read manifest alias")
 	}
 
 	err = binary.Read(f, binary.LittleEndian, &m.MetaLength)
 	if err != nil {
-		return manifest{}, errors.New("can't read manifest metadata length")
+		return manifest{}, errors.New("can't read manifest metadata length: " + err.Error())
 	}
 
 	if m.MetaLength > r.options.MaxMetaLength {
@@ -290,7 +304,7 @@ func (r *Reader) parseManifest(f io.Reader) (manifest, error) {
 	}
 	m.MetaSerialized = make([]byte, m.MetaLength)
 
-	n, err := f.Read(m.MetaSerialized)
+	n, err = f.Read(m.MetaSerialized)
 	if err != nil || uint32(n) != m.MetaLength {
 		return manifest{}, errors.New("can't read manifest metadata")
 	}
@@ -307,27 +321,34 @@ func (r *Reader) getManifestOffset(f io.Reader) (int64, error) {
 
 	for {
 		n, err := f.Read(buffer)
-		if err == io.EOF {
-			return 0, errors.New("unexpected EOF while looking for manifest")
+		if err != nil {
+			return 0, errors.New("can't find haltCompiler: " + err.Error())
 		}
 
 		search := append(before, buffer...)
 		index := strings.Index(string(search), haltCompiler)
 
 		if index >= 0 {
-			offset := position + int64(index) - int64(n) + int64(len(haltCompiler))
-			if offset > r.options.MaxManifestLength {
-				return 0, errors.New("manifest length more than MaxManifestLength")
+			offset := position + int64(index) - 200 + int64(len(haltCompiler))
+
+			//optional \r\n or \n
+			var nextChar = search[index+len(haltCompiler)]
+			var nextNextChar = search[index+len(haltCompiler)+1]
+			if nextChar == '\r' && nextNextChar == '\n' {
+				offset += 2
+			}
+			if nextChar == '\n' {
+				offset++
 			}
 
 			return offset, nil
 		}
 
 		position += int64(n)
-	}
-}
+		copy(before, buffer)
 
-//SetOptions - applies options to parser
-func (r *Reader) SetOptions(o Options) {
-	r.options = o
+		if position > r.options.MaxManifestLength {
+			return 0, errors.New("manifest length more than MaxManifestLength")
+		}
+	}
 }
