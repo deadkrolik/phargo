@@ -1,6 +1,8 @@
 package phargo
 
 import (
+	"bytes"
+	"crypto/sha1"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -91,7 +93,7 @@ func (r *Reader) Parse(filename string) (File, error) {
 		return File{}, errors.New("can't read rest of the file")
 	}
 
-	err = r.parseSignature(manifest, rest)
+	err = r.parseSignature(filename, manifest, rest)
 	if err != nil {
 		return File{}, errors.New("can't parse signature")
 	}
@@ -99,10 +101,55 @@ func (r *Reader) Parse(filename string) (File, error) {
 	return result, nil
 }
 
-func (r *Reader) parseSignature(m manifest, rest []byte) error {
+func (r *Reader) parseSignature(filename string, m manifest, rest []byte) error {
 	rLen := len(rest)
+	if rLen < 4 {
+		return errors.New("unexpected end of file, can't check last 4 bytes")
+	}
+
 	if "GBMB" != string(rest[rLen-4:rLen]) {
 		return errors.New("can't find GBMB constant at the end")
+	}
+
+	return r.checkFileSignature(filename, rest)
+}
+
+func (r *Reader) checkFileSignature(filename string, restBytes []byte) error {
+	const (
+		sigSHA1 = 0x0002 //PHAR_SIG_SHA1
+	)
+
+	f, _ := os.Open(filename)
+	defer func() {
+		_ = f.Close()
+	}()
+
+	stat, err := f.Stat()
+	if err != nil {
+		return err
+	}
+
+	var signatureLength int64
+	if len(restBytes) < 8 {
+		return errors.New("unexpected end of file, can't check signature")
+	}
+
+	//FILE_CONTENT + SIGNATURE + SIG_LENGTH + GBMB
+	//              |<--      restBytes      --->|
+	sigFlag := binary.LittleEndian.Uint32(restBytes[len(restBytes)-8 : len(restBytes)-4])
+	switch sigFlag {
+	case sigSHA1:
+		signatureLength = 20
+		h := sha1.New()
+		if _, err := io.CopyN(h, f, stat.Size()-signatureLength-8); err != nil {
+			return err
+		}
+
+		hash := h.Sum(nil)
+
+		if !bytes.Equal(hash, restBytes[:signatureLength]) {
+			return errors.New("SHA1 hash of file is incorrect")
+		}
 	}
 
 	return nil
