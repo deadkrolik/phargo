@@ -16,6 +16,7 @@ func NewReader() *Reader {
 			MaxMetaDataLength: 10000,
 			MaxManifestLength: 1048576 * 100,
 			MaxFileNameLength: 1000,
+			MaxAliasLength:    1000,
 		},
 	}
 }

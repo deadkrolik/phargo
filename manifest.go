@@ -47,6 +47,10 @@ func (m *manifest) parse(f io.Reader) error {
 	m.Flags = mb.Flags
 	m.AliasLength = mb.AliasLength
 
+	if m.AliasLength > m.options.MaxAliasLength {
+		return errors.New("manifest alias length more than MaxAlasLength")
+	}
+
 	m.Alias = make([]byte, m.AliasLength)
 	n, err := f.Read(m.Alias)
 	if err != nil || uint32(n) != m.AliasLength {

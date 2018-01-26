@@ -45,6 +45,8 @@ func main() {
             MaxManifestLength: 1048576 * 100,
             //max length of name of the file
             MaxFileNameLength: 1000,
+            //max length of archive alias in manifest
+            MaxAliasLength: 1000,
         })
     }
     

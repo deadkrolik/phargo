@@ -5,6 +5,7 @@ type Options struct {
 	MaxMetaDataLength uint32
 	MaxManifestLength int64
 	MaxFileNameLength uint32
+	MaxAliasLength    uint32
 }
 
 //File - parsed PHAR-file
