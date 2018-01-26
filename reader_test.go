@@ -1,6 +1,7 @@
 package phargo
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -105,6 +106,36 @@ func TestMetadataDirSHA256(t *testing.T) {
 
 	if string(file.Files[3].Metadata) != "a:1:{s:1:\"z\";s:2:\"cc\";}" {
 		t.Error("Wrong metadata for file 3")
+		return
+	}
+}
+
+func TestBadHash(t *testing.T) {
+	r := NewReader()
+
+	_, err := r.Parse("./testdata/bad_hash.phar")
+	if err == nil {
+		t.Error("Should get error")
+		return
+	}
+
+	if !strings.Contains(err.Error(), "MD5 hash") {
+		t.Error("Should be MD5 hash error")
+		return
+	}
+}
+
+func TestSHA512(t *testing.T) {
+	r := NewReader()
+
+	file, err := r.Parse("./testdata/sha512.phar")
+	if err != nil {
+		t.Error("Got error", err)
+		return
+	}
+
+	if len(file.Files) != 1 {
+		t.Error("Not 1 file")
 		return
 	}
 }

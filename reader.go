@@ -65,7 +65,7 @@ func (r *Reader) Parse(filename string) (File, error) {
 
 	//check signature
 	signature := &signature{options: r.options}
-	err = signature.check(filename, f)
+	err = signature.check(filename)
 	if err != nil {
 		return File{}, err
 	}
