@@ -17,6 +17,7 @@ type signature struct {
 	options Options
 }
 
+// http://php.net/manual/en/phar.fileformat.signature.php
 func (s *signature) check(filename string) error {
 	file, _ := os.Open(filename)
 	defer func() {

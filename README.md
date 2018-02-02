@@ -9,8 +9,12 @@ Parser supports several signature algorithms:
 * SHA1
 * SHA256
 * SHA512
-* ~~PGP~~
 * ~~OPENSSL~~
+
+Also supports compression formats:
+* None
+* GZ
+* ~~BZ2~~
 
 Can read manifest version, alias and metadata. For every file inside PHAR-archive can read it contents, 
 name, timestamp and metadata. Checks file CRC and signature of entire archive.

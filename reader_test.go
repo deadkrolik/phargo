@@ -139,3 +139,23 @@ func TestSHA512(t *testing.T) {
 		return
 	}
 }
+
+func TestGZ(t *testing.T) {
+	r := NewReader()
+
+	file, err := r.Parse("./testdata/gz.phar")
+	if err != nil {
+		t.Error("Got error", err)
+		return
+	}
+
+	if len(file.Files) != 1 {
+		t.Error("Not 1 file")
+		return
+	}
+
+	if string(file.Files[0].Data) != "DATADATADATADATA" {
+		t.Error("Wrong file 1 content")
+		return
+	}
+}

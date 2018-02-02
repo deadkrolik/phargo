@@ -145,7 +145,7 @@ func TestParseSuccess(t *testing.T) {
 
 	err := m.parse(b)
 	if err != nil {
-		t.Error("unexpected error" + err.Error())
+		t.Error("unexpected error: " + err.Error())
 	}
 
 	if m.EntitiesCount != 2 {
@@ -203,7 +203,7 @@ func TestGetOffsetWithoutRN(t *testing.T) {
 
 	o, err := m.getOffset(b, 15, "BBBCCC")
 	if err != nil {
-		t.Error("unexpected error" + err.Error())
+		t.Error("unexpected error: " + err.Error())
 	}
 	if o != 23 {
 		t.Error("offset should be 23")
@@ -220,7 +220,7 @@ func TestGetOffsetWithRN(t *testing.T) {
 
 	o, err := m.getOffset(b, 15, "BBBCCC")
 	if err != nil {
-		t.Error("unexpected error" + err.Error())
+		t.Error("unexpected error: " + err.Error())
 	}
 	if o != 25 {
 		t.Error("offset should be 25")
@@ -237,7 +237,7 @@ func TestGetOffsetWithN(t *testing.T) {
 
 	o, err := m.getOffset(b, 15, "BBBCCC")
 	if err != nil {
-		t.Error("unexpected error" + err.Error())
+		t.Error("unexpected error: " + err.Error())
 	}
 	if o != 24 {
 		t.Error("offset should be 24")

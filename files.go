@@ -1,10 +1,13 @@
 package phargo
 
 import (
+	"bytes"
+	"compress/flate"
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
 	"io"
+	"io/ioutil"
 )
 
 type files struct {
@@ -57,16 +60,23 @@ func (f *files) parseEntryData(in io.Reader, entry *entry) ([]byte, error) {
 	const (
 		isCompressed = 0xF000 //PHAR_ENT_COMPRESSION_MASK
 	)
-	var buffer []byte
 
+	readLength := entry.SizeUncompressed
 	if entry.Flags&isCompressed > 0 {
-		return []byte{}, errors.New("can't parse compressed entry: " + entry.Name)
+		readLength = entry.SizeCompressed
 	}
 
-	buffer = make([]byte, entry.SizeUncompressed)
+	buffer := make([]byte, readLength)
 	n, err := in.Read(buffer)
-	if err != nil || n != int(entry.SizeUncompressed) {
+	if err != nil || n != int(readLength) {
 		return []byte{}, errors.New("can't read entry data: " + entry.Name)
+	}
+
+	if entry.Flags&isCompressed > 0 {
+		buffer, err = f.readCompressed(buffer, entry.Flags, entry.SizeUncompressed)
+		if err != nil {
+			return []byte{}, err
+		}
 	}
 
 	crc32q := crc32.MakeTable(0xedb88320)
@@ -75,6 +85,29 @@ func (f *files) parseEntryData(in io.Reader, entry *entry) ([]byte, error) {
 	}
 
 	return buffer, nil
+}
+
+func (f *files) readCompressed(in []byte, flags uint32, uncompressedSize uint32) ([]byte, error) {
+	const (
+		compressionGZ = 0x1000 //PHAR_ENT_COMPRESSED_GZ
+	)
+
+	if flags&compressionGZ > 0 {
+		flate := flate.NewReader(bytes.NewReader(in))
+
+		b, err := ioutil.ReadAll(flate)
+		if err != nil {
+			return []byte{}, errors.New("can't read from gzip: " + err.Error())
+		}
+
+		if len(b) != int(uncompressedSize) {
+			return []byte{}, errors.New("uncompressed entry size is incorrect")
+		}
+
+		return b, nil
+	}
+
+	return []byte{}, errors.New("unsupported compression method")
 }
 
 func (f *files) parseEntryHeader(in io.Reader) (entry, error) {
