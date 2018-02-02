@@ -39,7 +39,7 @@ func (r *Reader) Parse(filename string) (File, error) {
 	var result File
 
 	manifest := &manifest{options: r.options}
-	offset, err := manifest.getOffset(f)
+	offset, err := manifest.getOffset(f, 200, "__HALT_COMPILER(); ?>")
 	if err != nil {
 		return File{}, err
 	}

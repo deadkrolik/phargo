@@ -22,10 +22,6 @@ type manifest struct {
 	options Options
 }
 
-const (
-	haltCompiler = "__HALT_COMPILER(); ?>"
-)
-
 func (m *manifest) parse(f io.Reader) error {
 	type mBinary struct {
 		Length        uint32
@@ -76,9 +72,9 @@ func (m *manifest) parse(f io.Reader) error {
 	return nil
 }
 
-func (m *manifest) getOffset(f io.Reader) (int64, error) {
-	buffer := make([]byte, 200)
-	before := make([]byte, 200)
+func (m *manifest) getOffset(f io.Reader, bufSize int64, haltCompiler string) (int64, error) {
+	buffer := make([]byte, bufSize)
+	before := make([]byte, bufSize)
 	var position int64
 
 	for {
@@ -91,7 +87,10 @@ func (m *manifest) getOffset(f io.Reader) (int64, error) {
 		index := strings.Index(string(search), haltCompiler)
 
 		if index >= 0 {
-			offset := position + int64(index) - 200 + int64(len(haltCompiler))
+			offset := position + int64(index) - bufSize + int64(len(haltCompiler))
+			if index+len(haltCompiler) >= len(search) {
+				return 0, errors.New("unexpected end of file")
+			}
 
 			//optional \r\n or \n
 			var nextChar = search[index+len(haltCompiler)]
